@@ -7,6 +7,7 @@ using Setfield: @set!
 using Static: False
 
 using Lux: Lux, LuxOps, Training
+using LuxCore: AbstractLuxLayer
 using Lux.Training: TrainingBackendCache, ReactantBackend
 
 include("patches.jl")
