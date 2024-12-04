@@ -70,6 +70,7 @@ include("helpers/losses.jl")
 include("helpers/recursive_ops.jl")
 include("helpers/match_eltype.jl")
 include("helpers/size_propagator.jl")
+include("helpers/model_rewriter.jl")
 
 # AutoDiff
 include("autodiff/api.jl")
