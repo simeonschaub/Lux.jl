@@ -5,3 +5,5 @@ LuxOps.xlogx(x::TracedRNumber{Bool}) = zero(x)
 function LuxOps.xlogy(x::TracedRNumber, y::TracedRNumber)
     return invoke(LuxOps.xlogy, Tuple{Number, Number}, float(x), float(y))
 end
+
+Utils.vec(x::AnyTracedRArray) = Reactant.materialize_traced_array(vec(x))
