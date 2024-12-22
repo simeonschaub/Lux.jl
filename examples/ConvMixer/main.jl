@@ -1,6 +1,6 @@
 using Comonicon, ConcreteStructs, DataAugmentation, ImageShow, Interpolations, Lux, LuxCUDA,
       MLDatasets, MLUtils, OneHotArrays, Optimisers, Printf, ProgressBars, Random,
-      StableRNGs, Statistics, Zygote
+      Statistics, Zygote
 using Reactant, Enzyme
 
 CUDA.allowscalar(false)
@@ -70,7 +70,6 @@ end
 function accuracy(model, ps, st, dataloader)
     total_correct, total = 0, 0
     cdev = cpu_device()
-    st = Lux.testmode(st)
     for (x, y) in dataloader
         target_class = onecold(cdev(y))
         predicted_class = onecold(cdev(first(model(x, ps, st))))
@@ -81,10 +80,11 @@ function accuracy(model, ps, st, dataloader)
 end
 
 Comonicon.@main function main(; batchsize::Int=512, hidden_dim::Int=256, depth::Int=8,
-        patch_size::Int=2, kernel_size::Int=5, weight_decay::Float64=1e-4,
-        clip_norm::Bool=false, seed::Int=42, epochs::Int=25, lr_max::Float64=0.01,
+        patch_size::Int=2, kernel_size::Int=5, weight_decay::Float64=0.005,
+        clip_norm::Bool=false, seed::Int=1234, epochs::Int=25, lr_max::Float64=0.05,
         backend::String="gpu_if_available")
-    rng = StableRNG(seed)
+    rng = Random.default_rng()
+    Random.seed!(rng, seed)
 
     if backend == "gpu_if_available"
         accelerator_device = gpu_device()
@@ -119,7 +119,8 @@ Comonicon.@main function main(; batchsize::Int=512, hidden_dim::Int=256, depth::
     if backend == "reactant"
         x_ra = rand(rng, Float32, size(first(trainloader)[1])) |> accelerator_device
         @printf "[Info] Compiling model with Reactant.jl\n"
-        model_compiled = @compile model(x_ra, ps, Lux.testmode(st))
+        st_test = Lux.testmode(st)
+        model_compiled = @compile model(x_ra, ps, st_test)
         @printf "[Info] Model compiled!\n"
     else
         model_compiled = model
@@ -141,14 +142,16 @@ Comonicon.@main function main(; batchsize::Int=512, hidden_dim::Int=256, depth::
         ttime = time() - stime
 
         train_acc = accuracy(
-            model_compiled, train_state.parameters, train_state.states, trainloader
+            model_compiled, train_state.parameters,
+            Lux.testmode(train_state.states), trainloader
         ) * 100
         test_acc = accuracy(
-            model_compiled, train_state.parameters, train_state.states, testloader
+            model_compiled, train_state.parameters,
+            Lux.testmode(train_state.states), testloader
         ) * 100
 
-        @printf "[Train] Epoch %2d: Learning Rate %.2e, Train Acc: %.2f%%, Test Acc: \
-                 %.2f%%, Time: %.2f\n" epoch lr train_acc test_acc ttime
+        @printf "[Train] Epoch %2d: Learning Rate %.6f, Train Acc: %.4f%%, Test Acc: \
+                 %.4f%%, Time: %.2f\n" epoch lr train_acc test_acc ttime
     end
     @printf "[Info] Finished training\n"
 end

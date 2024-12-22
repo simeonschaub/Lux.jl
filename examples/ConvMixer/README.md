@@ -20,10 +20,11 @@ julia --startup-file=no \
     --threads=auto \
     main.jl \
     --lr-max=0.05 \
-    --weight-decay=0.0001
+    --weight-decay=0.0001 \
+    --backend=reactant
 ```
 
-Here's an example of the output of the above command (on a V100 32GB GPU):
+Here's an example output of the above command (on a RTX 4050 6GB Laptop GPU):
 
 ```
 Epoch  1: Learning Rate 5.05e-03, Train Acc: 56.91%, Test Acc: 56.49%, Time: 129.84
@@ -69,7 +70,7 @@ Options
   --seed <42::Int>
   --epochs <25::Int>
   --lr-max <0.01::Float64>
-  --backend <reactant::String>
+  --backend <gpu_if_available::String>
 
 Flags
   --clip-norm
