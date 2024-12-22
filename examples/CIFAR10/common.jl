@@ -1,9 +1,6 @@
-using Comonicon, ConcreteStructs, DataAugmentation, ImageShow, Interpolations, Lux, LuxCUDA,
-      MLDatasets, MLUtils, OneHotArrays, Optimisers, Printf, ProgressBars, Random,
-      Statistics, Zygote
-using Reactant, Enzyme
-
-CUDA.allowscalar(false)
+using ConcreteStructs, DataAugmentation, ImageShow, Lux, MLDatasets, MLUtils, OneHotArrays,
+      Printf, ProgressTables, Random
+using LuxCUDA, Reactant
 
 @concrete struct TensorDataset
     dataset
@@ -18,7 +15,7 @@ function Base.getindex(ds::TensorDataset, idxs::Union{Vector{<:Integer}, Abstrac
     return stack(parent ∘ itemdata ∘ Base.Fix1(apply, ds.transform), img), y
 end
 
-function get_dataloaders(batchsize; kwargs...)
+function get_cifar10_dataloaders(batchsize; kwargs...)
     cifar10_mean = (0.4914, 0.4822, 0.4465)
     cifar10_std = (0.2471, 0.2435, 0.2616)
 
@@ -38,35 +35,6 @@ function get_dataloaders(batchsize; kwargs...)
     return trainloader, testloader
 end
 
-function ConvMixer(; dim, depth, kernel_size=5, patch_size=2)
-    #! format: off
-    return Chain(
-        Conv((patch_size, patch_size), 3 => dim, gelu; stride=patch_size),
-        BatchNorm(dim),
-        [
-            Chain(
-                SkipConnection(
-                    Chain(
-                        Conv(
-                            (kernel_size, kernel_size), dim => dim, gelu;
-                            groups=dim, pad=SamePad()
-                        ),
-                        BatchNorm(dim)
-                    ),
-                    +
-                ),
-                Conv((1, 1), dim => dim, gelu),
-                BatchNorm(dim)
-            )
-            for _ in 1:depth
-        ]...,
-        GlobalMeanPool(),
-        FlattenLayer(),
-        Dense(dim => 10)
-    )
-    #! format: on
-end
-
 function accuracy(model, ps, st, dataloader)
     total_correct, total = 0, 0
     cdev = cpu_device()
@@ -79,40 +47,36 @@ function accuracy(model, ps, st, dataloader)
     return total_correct / total
 end
 
-Comonicon.@main function main(; batchsize::Int=512, hidden_dim::Int=256, depth::Int=8,
-        patch_size::Int=2, kernel_size::Int=5, weight_decay::Float64=0.005,
-        clip_norm::Bool=false, seed::Int=1234, epochs::Int=25, lr_max::Float64=0.05,
-        backend::String="gpu_if_available")
-    rng = Random.default_rng()
-    Random.seed!(rng, seed)
-
+function get_accelerator_device(backend::String)
     if backend == "gpu_if_available"
-        accelerator_device = gpu_device()
+        return gpu_device()
     elseif backend == "gpu"
-        accelerator_device = gpu_device(; force=true)
+        return gpu_device(; force=true)
     elseif backend == "reactant"
-        accelerator_device = reactant_device(; force=true)
+        return reactant_device(; force=true)
     elseif backend == "cpu"
-        accelerator_device = cpu_device()
+        return cpu_device()
     else
         error("Invalid backend: $(backend). Valid Options are: `gpu_if_available`, `gpu`, \
                `reactant`, and `cpu`.")
     end
+end
 
+function train_model(
+        model, opt, scheduler=nothing;
+        backend::String, batchsize::Int=512, seed::Int=1234, epochs::Int=25
+)
+    rng = Random.default_rng()
+    Random.seed!(rng, seed)
+
+    accelerator_device = get_accelerator_device(backend)
     kwargs = accelerator_device isa ReactantDevice ? (; partial=false) : ()
-    trainloader, testloader = get_dataloaders(batchsize; kwargs...) |> accelerator_device
+    trainloader, testloader = get_cifar10_dataloaders(batchsize; kwargs...) |>
+                              accelerator_device
 
-    model = ConvMixer(; dim=hidden_dim, depth, kernel_size, patch_size)
     ps, st = Lux.setup(rng, model) |> accelerator_device
 
-    opt = AdamW(; eta=lr_max, lambda=weight_decay)
-    clip_norm && (opt = OptimiserChain(ClipNorm(), opt))
-
     train_state = Training.TrainState(model, ps, st, opt)
-
-    lr_schedule = linear_interpolation(
-        [0, epochs * 2 ÷ 5, epochs * 4 ÷ 5, epochs + 1], [0, lr_max, lr_max / 20, 0]
-    )
 
     adtype = backend == "reactant" ? AutoEnzyme() : AutoZygote()
 
@@ -128,16 +92,32 @@ Comonicon.@main function main(; batchsize::Int=512, hidden_dim::Int=256, depth::
 
     loss_fn = CrossEntropyLoss(; logits=Val(true))
 
+    pt = ProgressTable(;
+        header=[
+            "Epoch", "Learning Rate", "Train Accuracy (%)", "Test Accuracy (%)", "Time (s)"
+        ],
+        widths=[24, 24, 24, 24, 24],
+        format=["%3d", "%.6f", "%.6f", "%.6f", "%.6f"],
+        color=[:normal, :normal, :blue, :blue, :normal],
+        border=true,
+        alignment=[:center, :center, :center, :center, :center]
+    )
+
     @printf "[Info] Training model\n"
+    initialize(pt)
+
     for epoch in 1:epochs
         stime = time()
         lr = 0
         for (i, (x, y)) in enumerate(trainloader)
-            lr = lr_schedule((epoch - 1) + (i + 1) / length(trainloader))
-            train_state = Optimisers.adjust!(train_state, lr)
-            (_, _, _, train_state) = Training.single_train_step!(
+            if scheduler !== nothing
+                lr = scheduler((epoch - 1) + (i + 1) / length(trainloader))
+                train_state = Optimisers.adjust!(train_state, lr)
+            end
+            (_, loss, _, train_state) = Training.single_train_step!(
                 adtype, loss_fn, (x, y), train_state
             )
+            isnan(loss) && error("NaN loss encountered!")
         end
         ttime = time() - stime
 
@@ -150,8 +130,10 @@ Comonicon.@main function main(; batchsize::Int=512, hidden_dim::Int=256, depth::
             Lux.testmode(train_state.states), testloader
         ) * 100
 
-        @printf "[Train] Epoch %2d: Learning Rate %.6f, Train Acc: %.4f%%, Test Acc: \
-                 %.4f%%, Time: %.2f\n" epoch lr train_acc test_acc ttime
+        scheduler === nothing && (lr = NaN32)
+        next(pt, [epoch, lr, train_acc, test_acc, ttime])
     end
+
+    finalize(pt)
     @printf "[Info] Finished training\n"
 end

@@ -1,6 +1,35 @@
-# Train ConvMixer on CIFAR-10
+# Train Vision Models on CIFAR-10
 
- ✈️ 🚗 🐦 🐈 🦌 🐕 🐸 🐎 🚢 🚚
+✈️ 🚗 🐦 🐈 🦌 🐕 🐸 🐎 🚢 🚚
+
+We have the following scripts to train vision models on CIFAR-10:
+
+1. `simple_cnn.jl`: Simple CNN model with a sequence of convolutional layers.
+2. `mlp_mixer.jl`: MLP-Mixer model.
+3. `conv_mixer.jl`: ConvMixer model.
+
+To get the options for each script, run the script with the `--help` flag.
+
+> [!NOTE]
+> To train the model using Reactant.jl pass in `--backend=reactant` to the script. This is
+> the recommended approch to train the models present in this directory.
+
+## Simple CNN
+
+```bash
+julia --startup-file=no \
+    --project=. \
+    --threads=auto \
+    simple_cnn.jl \
+    --backend=reactant
+```
+
+On a RTX 4050 6GB Laptop GPU the training takes approximately 3 mins and the final training
+and test accuracies are 97% and 65%, respectively.
+
+## MLP-Mixer
+
+## ConvMixer
 
 > [!NOTE]
 > This code has been adapted from https://github.com/locuslab/convmixer-cifar10
@@ -11,14 +40,11 @@ for new experiments on small datasets.
 You can get around **90.0%** accuracy in just **25 epochs** by running the script with the
 following arguments, which trains a ConvMixer-256/8 with kernel size 5 and patch size 2.
 
-> [!NOTE]
-> To train the model using Reactant.jl pass in `--backend=reactant` to the script.
-
 ```bash
 julia --startup-file=no \
     --project=. \
     --threads=auto \
-    main.jl \
+    conv_mixer.jl \
     --lr-max=0.05 \
     --weight-decay=0.0001 \
     --backend=reactant
@@ -54,32 +80,7 @@ Epoch 24: Learning Rate 8.29e-04, Train Acc: 99.99%, Test Acc: 90.79%, Time: 21.
 Epoch 25: Learning Rate 4.12e-04, Train Acc: 100.00%, Test Acc: 90.83%, Time: 21.32
 ```
 
-## Usage
-
-```bash
-  main [options] [flags]
-
-Options
-
-  --batchsize <512::Int>
-  --hidden-dim <256::Int>
-  --depth <8::Int>
-  --patch-size <2::Int>
-  --kernel-size <5::Int>
-  --weight-decay <0.01::Float64>
-  --seed <42::Int>
-  --epochs <25::Int>
-  --lr-max <0.01::Float64>
-  --backend <gpu_if_available::String>
-
-Flags
-  --clip-norm
-
-  -h, --help                                                Print this help message.
-  --version                                                 Print version.
-```
-
-## Notes
+### Notes
 
   1. To match the results from the original repo, we need more augmentation strategies, that
      are currently not implemented in DataAugmentation.jl.
