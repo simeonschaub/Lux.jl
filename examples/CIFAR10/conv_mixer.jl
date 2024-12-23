@@ -33,10 +33,12 @@ function ConvMixer(; dim, depth, kernel_size=5, patch_size=2)
     #! format: on
 end
 
-Comonicon.@main function main(; batchsize::Int=512, hidden_dim::Int=256, depth::Int=8,
+Comonicon.@main function main(;
+        batchsize::Int=512, hidden_dim::Int=256, depth::Int=8,
         patch_size::Int=2, kernel_size::Int=5, weight_decay::Float64=0.0001,
         clip_norm::Bool=false, seed::Int=1234, epochs::Int=25, lr_max::Float64=0.05,
-        backend::String="reactant")
+        backend::String="reactant"
+)
     model = ConvMixer(; dim=hidden_dim, depth, kernel_size, patch_size)
 
     opt = AdamW(; eta=lr_max, lambda=weight_decay)
